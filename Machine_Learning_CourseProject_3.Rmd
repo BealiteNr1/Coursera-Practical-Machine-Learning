@@ -1,0 +1,186 @@
+
+---
+output: html_document
+---
+#Coursera project of course "Data Science Specialization: Practical Machine Learning"
+Author: Armin Leichtfuss
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+library(datasets)
+library(caret)
+library(e1071)
+library(klaR)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+library(doParallel)    #for parallel random forest
+require(ggplot2)
+require(gridExtra)
+```
+
+#Executive Summary
+In conformity with a trend to biometrical analyses we investiigated the way how people performed a secific fitness training. Using the recorded movement coordinates we tried to set up a model which is able to classify how well they did the exercise. The "Random Forest"-approach resulted in an extremely good prediction capability.
+
+#Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+The goal of the project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases. 
+
+#Data source, loading data
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+At first read contents of file [pml-training.csv] into data frame [df]. NA-values could be identified by taking a look into the file.
+```{r echo=FALSE}
+fp <- "G:/Armin/Weiterbildung/Coursera Data Science/8 Practical Machine Learning/CourseProject"
+df <- read.csv(paste(fp,"/data/pml-training.csv", sep=""), header = TRUE, na.strings=c("NA","#DIV/0!", ""))
+```
+
+#Exploring and Tidying Data
+The "classe"-variable shall be predicted! First of all we are interested what kind of values are in this variable?
+```{r echo=FALSE}
+str(df[names(df)=="classe"])
+summary(df[names(df)=="classe"])
+#dim(df)
+```
+For modeling purposes let us keep in mind that "classe" is a categorical variable.
+
+Now, what are the dimensions of the data set, i.e. how many lines and columns?
+
+There are `r nrow(df)` lines and `r ncol(df)` columns in the data frame. The number of rows in the dataset is definitely sufficient for modeling in view of 5 different values in factor variable "classe".
+
+This means we have `r ncol(df)-1` candidates for predictor variables. In order to get a valuable and interpretable model we have to get rid of a significant number of variables.
+
+In this assignment we are foremost concerned about the correct execution of the movement only, which means that we can leave out columns 1 to 7. If we would be interested in a statement like "Does user x perform better than user y?" or something like that we would do a simple correlation check. Of course, if we would want to predict "Will user z perform well?", we need to consider variable "User".
+
+```{r echo=FALSE}
+df <- df[,-c(1:7)]
+```
+
+It is plain to see (using "head" or "str") that a number of columns seem to be empty, so let´s get rid of columns which are less than 75% filled with values.
+```{r }
+removeCols <- which((colSums(is.na(df)) > 0.25*nrow(df)))
+if (length(removeCols) > 0) {df <- df[,-removeCols]}
+```
+
+Next we make an attempt to identify so-to-speak "almost constant" variables by applying the "nearZeroVar"-function in the caret package.
+```{r}
+removeCols <- nearZeroVar(df)
+if (length(removeCols) > 0) {df <- df[,-removeCols]}
+```
+The function identified  `r length(removeCols)` variables in this concern, and we will remove these columns from our data frame, too.
+
+```{r}
+usedCols <- colnames(df)   #keep the remaining columns in mind for the 20-record test data
+```
+
+By the way, this hasn´t been any pre-processing so far, just trying to get the complexity reduced by identifying a reasonable number of irrelevant columns. Therefore it can (or should) be executed on the whole data set (before splitting into train and test data).
+
+Now there are "only" `r ncol(df)-1` columns left. By the way, do we still have the column "classe" in the data frame? Funny if it had been removed by one of the tidying procedures. But, yes, it is in column `r which(colnames(df)=="classe")` (it´s the last column of the data frame).
+
+Are there any NA-values left?
+```{r }
+NACols <- which((colSums(is.na(df)) > 0))
+length(NACols)
+```
+So we do not need to impute values (in pre-processing).
+
+#Split data
+Now we split the data into training and test set with a ratio of 6:4 like we´ve seen many times before.
+```{r }
+set.seed(16960)
+idxTrain <- createDataPartition(y=df$classe, p=0.6, list=FALSE)
+trainData <- df[idxTrain,]
+testData <- df[-idxTrain,]
+dim(trainData); dim(testData)
+```
+
+#Machine Learning - Identify Model
+First of all we need to be aware of the type of model we can use for the assignment. Since "classe" is a categorical variable e.g. "standard" linear regression is out of question. 
+
+In addition, sample size (numer of records) and structure (number of columns) have to be taken into account. In particular when we run the functions on a simple laptop computer. Therefore I executed the trainings and saved the results on hard disk in order to create the html-document. The R-scripts are displayed as comments.
+
+```{r echo=FALSE}
+setwd(fp)
+#set.seed(16960)
+#modrpart <- train(classe ~ ., data=trainData, method="rpart")     #Decision Tree
+#saveRDS(modrpart, "modrpart.RData")
+modrpart <- readRDS("modrpart.RData")
+
+#set.seed(16960)
+#modnb <- train(classe ~ ., data=trainData, method="nb")             #Naive Bayes: run-time!
+#saveRDS(modnb, "modnb.RData")
+modnb <- readRDS("modnb.RData")
+
+#set.seed(16960)
+#modrf <- train(classe ~ ., data=trainData, method="rf")             #Random Forest: 
+#saveRDS(modrf, "modrf.RData")
+modrf <- readRDS("modrf.RData")
+
+#modelFit$finalModel
+```
+
+Now we´ve got three different models:
+*Decision Tree (method="rpart")
+*Naive Bayes (method="nb)
+*Random Forest (method="rf)
+
+Compute accuracy (i.e. predicted values versus true values) of training(!) data: 
+```{r echo=TRUE}
+confusionMatrix(predict(modrpart, newdata=trainData), trainData$classe)
+```
+The result of the decision tree is strange since there are no predictions for classe "D". However, in the context of this project assignment I was not able to go into further investigations. We could e.g. explore the structure of the tree 
+```{r echo=TRUE}
+#plot(modrpart$finalModel)
+#text(modrpart$finalModel)
+fancyRpartPlot(modrpart$finalModel)
+```
+or the relevance or impact of the variables
+```{r echo=TRUE}
+plot(varImp(modrpart))
+```
+
+Check accuracy of the "Naive Bayes" model:
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+confusionMatrix(predict(modnb, newdata=trainData), trainData$classe)
+```
+
+And last but definitely not least (as we will find out) the "Random Forest":
+```{r echo=TRUE}
+confusionMatrix(predict(modrf, newdata=trainData), trainData$classe)
+```
+
+The "random forest"-method shows the best performance (yet 100% accuracy raises a suspicion on overfitting). 
+Please be assured that performance of all  models has been validated on testing data. However, in order to keep the analysis compact we will focus on this model in the following. 
+
+#Evaluate/Validate Model
+Compute the accuracy of the "random forest"-model for the testing(!) data (i.e. 40% of records in file "pml-training.csv"")
+
+```{r echo=TRUE}
+confusionMatrix(predict(modrf, newdata=testData), testData$classe)
+```
+Performance of the model is extraordinary good, in particular compared to the other model types "tree partitioning" and "naive bayes". In a true assignment I would put much more effort in verification and interpretation.
+
+#Assignment: Predict 20 test cases and submit files
+```{r echo=TRUE}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+test20 <- read.csv(paste(fp,"/data/pml-testing.csv", sep=""), header = TRUE, na.strings=c("NA","#DIV/0!", ""))
+colnames(test20)[colnames(test20)=="problem_id"] <- "classe"
+test20 <- test20[usedCols]
+pml_write_files(predict(modrf, newdata=test20))
+```
